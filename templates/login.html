@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Вход в кабинет мастера</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #075e54;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 400px;
+        }
+        h1 { color: #075e54; margin-bottom: 8px; font-size: 24px; }
+        p.subtitle { color: #666; margin-bottom: 24px; font-size: 14px; }
+        label {
+            display: block;
+            color: #333;
+            font-size: 13px;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+            margin-bottom: 16px;
+        }
+        input:focus { border-color: #25d366; }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: #25d366;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background: #1ebe5d; }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            background: transparent;
+            color: #075e54;
+            border: 2px solid #e0e0e0;
+            margin-top: 10px;
+        }
+        .btn-secondary:hover {
+            background: #f5f5f5;
+            color: #075e54;
+        }
+        .error {
+            background: #ffe5e5;
+            color: #c00;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 16px;
+        }
+        .info {
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 16px;
+        }
+        .reset-link {
+            display: block;
+            text-align: center;
+            color: #666;
+            font-size: 13px;
+            margin-top: 20px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .reset-link:hover { color: #075e54; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>💉 Кабинет мастера</h1>
+        <p class="subtitle">Войдите, используя email и пароль</p>
+
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+
+        {% if info %}
+        <div class="info">{{ info }}</div>
+        {% endif %}
+
+        <form method="POST" action="/admin/login">
+            <label>Email</label>
+            <input type="email"
+                   name="email"
+                   placeholder="master@example.com"
+                   autocomplete="username"
+                   required
+                   autofocus>
+
+            <label>Пароль</label>
+            <input type="password"
+                   name="password"
+                   placeholder="Введите пароль"
+                   autocomplete="current-password"
+                   required>
+
+            <button type="submit">Войти</button>
+        </form>
+
+        <a class="reset-link" href="/admin/forgot-password">
+            Забыли пароль? Получить новый
+        </a>
+    </div>
+</body>
+</html>

@@ -1,0 +1,18 @@
+<div class="header">
+    <div class="header-top">
+        <h1>💉 {% if admin_lang == 'en' %}Master's Cabinet{% elif admin_lang == 'he' %}הקבינט של המאסטר{% else %}Кабинет мастера{% endif %}</h1>
+        <div class="lang-switch">
+            <a href="?lang=ru" class="lang-btn {% if admin_lang == 'ru' %}active{% endif %}" title="Русский">RU</a>
+            <a href="?lang=en" class="lang-btn {% if admin_lang == 'en' %}active{% endif %}" title="English">EN</a>
+            <a href="?lang=he" class="lang-btn {% if admin_lang == 'he' %}active{% endif %}" title="עברית">HE</a>
+        </div>
+    </div>
+    <div class="header-nav">
+        <a href="/admin" {% if active == 'home' %}class="active"{% endif %}>{{ t('admin_nav_home', admin_lang) }}</a>
+        <a href="/admin/schedule" {% if active == 'schedule' %}class="active"{% endif %}>{{ t('admin_nav_schedule', admin_lang) }}</a>
+        <a href="/admin/bookings" {% if active == 'bookings' %}class="active"{% endif %}>{{ t('admin_nav_bookings', admin_lang) }}</a>
+        <a href="/admin/calendar" {% if active == 'calendar' %}class="active"{% endif %}>{{ t('admin_nav_calendar', admin_lang) }}</a>
+        <a href="/admin/settings" {% if active == 'settings' %}class="active"{% endif %}>{{ t('admin_nav_settings', admin_lang) }}</a>
+        <a href="/admin/logout">{{ t('admin_nav_logout', admin_lang) }}</a>
+    </div>
+</div>

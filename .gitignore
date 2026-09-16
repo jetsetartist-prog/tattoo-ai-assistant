@@ -1,0 +1,27 @@
+# Секреты
+.env
+
+# База данных
+data/
+*.db
+*.csv
+
+# Логи
+logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Бэкапы
+backup_*/
+backup_lang_*/
+backup_rtl_*/
+backup_translate_*/
