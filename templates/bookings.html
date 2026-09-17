@@ -213,7 +213,7 @@
                 </thead>
                 <tbody>
                     {% for b in bookings %}
-                    <tr>
+                    <tr style="cursor: pointer;" onclick="window.location='/admin/bookings/{{ b.id }}'">
                         <td><b>{{ b.date_human }}</b></td>
                         <td>{{ b.time }}</td>
                         <td>{{ b.name }}</td>

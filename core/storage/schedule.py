@@ -4,8 +4,7 @@
 """
 import os
 import sqlite3
-import json
-from datetime import datetime, timedelta, date as date_type
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from loguru import logger
@@ -37,7 +36,7 @@ def init_schedule_db() -> None:
         )
     """)
 
-    # Рабочие часы (шаблон недели)
+    # Рабочие часы
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS work_hours (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,7 +50,7 @@ def init_schedule_db() -> None:
         )
     """)
 
-    # Выходные и отпуска (конкретные даты)
+    # Выходные
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS days_off (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +62,7 @@ def init_schedule_db() -> None:
         )
     """)
 
-    # Услуги (размеры татуировок)
+    # Услуги
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS services (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,7 +91,7 @@ def init_schedule_db() -> None:
         )
     """)
 
-    # Добавляем колонки для пароля, если их нет
+    # Пароль мастера
     try:
         cursor.execute("ALTER TABLE masters ADD COLUMN password_hash TEXT")
     except sqlite3.OperationalError:
@@ -100,6 +99,17 @@ def init_schedule_db() -> None:
 
     try:
         cursor.execute("ALTER TABLE masters ADD COLUMN password_set_at TIMESTAMP")
+    except sqlite3.OperationalError:
+        pass
+
+    # Поля для записей: notes, reference_image
+    try:
+        cursor.execute("ALTER TABLE bookings ADD COLUMN notes TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE bookings ADD COLUMN reference_image TEXT")
     except sqlite3.OperationalError:
         pass
 
@@ -113,7 +123,6 @@ def seed_default_data() -> None:
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
 
-    # Проверяем, есть ли уже мастера
     cursor.execute("SELECT COUNT(*) FROM masters")
     if cursor.fetchone()[0] == 0:
         cursor.execute(
@@ -123,15 +132,14 @@ def seed_default_data() -> None:
         master_id = cursor.lastrowid
         logger.info(f"[Schedule] Создан мастер по умолчанию, id={master_id}")
 
-        # Рабочие часы: Пн-Пт 10-20, Сб 12-18, Вс выходной
         default_hours = [
-            (master_id, 0, "10:00", "20:00", 1),  # Пн
-            (master_id, 1, "10:00", "20:00", 1),  # Вт
-            (master_id, 2, "10:00", "20:00", 1),  # Ср
-            (master_id, 3, "10:00", "20:00", 1),  # Чт
-            (master_id, 4, "10:00", "20:00", 1),  # Пт
-            (master_id, 5, "12:00", "18:00", 1),  # Сб
-            (master_id, 6, "00:00", "00:00", 0),  # Вс — выходной
+            (master_id, 0, "10:00", "20:00", 1),
+            (master_id, 1, "10:00", "20:00", 1),
+            (master_id, 2, "10:00", "20:00", 1),
+            (master_id, 3, "10:00", "20:00", 1),
+            (master_id, 4, "10:00", "20:00", 1),
+            (master_id, 5, "12:00", "18:00", 1),
+            (master_id, 6, "00:00", "00:00", 0),
         ]
         cursor.executemany(
             "INSERT INTO work_hours (master_id, weekday, start_time, end_time, is_working) "
@@ -140,7 +148,6 @@ def seed_default_data() -> None:
         )
         logger.info("[Schedule] Создан график по умолчанию")
 
-    # Проверяем услуги
     cursor.execute("SELECT COUNT(*) FROM services")
     if cursor.fetchone()[0] == 0:
         default_services = [
@@ -159,11 +166,10 @@ def seed_default_data() -> None:
 
 
 # ============================================
-# РАБОТА С МАСТЕРАМИ
+# МАСТЕРА
 # ============================================
 
 def get_default_master() -> Optional[dict]:
-    """Возвращает мастера по умолчанию (первого активного)."""
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -184,7 +190,6 @@ def get_master(master_id: int) -> Optional[dict]:
 
 
 def get_master_by_email(email: str) -> Optional[dict]:
-    """Возвращает мастера по email (регистр не важен)."""
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -195,7 +200,6 @@ def get_master_by_email(email: str) -> Optional[dict]:
 
 
 def set_master_password(master_id: int, password_hash: str) -> None:
-    """Сохраняет хеш пароля мастера."""
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -208,7 +212,6 @@ def set_master_password(master_id: int, password_hash: str) -> None:
 
 
 def has_password(master_id: int) -> bool:
-    """Проверяет, установлен ли пароль у мастера."""
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT password_hash FROM masters WHERE id = ?", (master_id,))
@@ -222,7 +225,6 @@ def has_password(master_id: int) -> bool:
 # ============================================
 
 def get_work_hours(master_id: int, weekday: int) -> Optional[dict]:
-    """Возвращает рабочие часы мастера на день недели (0=пн)."""
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -236,7 +238,6 @@ def get_work_hours(master_id: int, weekday: int) -> Optional[dict]:
 
 
 def get_all_work_hours(master_id: int) -> list:
-    """Возвращает все рабочие часы мастера по дням недели."""
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -250,7 +251,6 @@ def get_all_work_hours(master_id: int) -> list:
 
 
 def set_work_hours(master_id: int, weekday: int, start: str, end: str, is_working: bool) -> None:
-    """Устанавливает рабочие часы мастера на день недели."""
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
     cursor.execute("""
@@ -270,7 +270,6 @@ def set_work_hours(master_id: int, weekday: int, start: str, end: str, is_workin
 # ============================================
 
 def get_days_off(master_id: int, from_date: str = None, to_date: str = None) -> list:
-    """Возвращает выходные мастера в диапазоне."""
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -290,7 +289,6 @@ def get_days_off(master_id: int, from_date: str = None, to_date: str = None) -> 
 
 
 def is_day_off(master_id: int, date_str: str) -> bool:
-    """Проверяет, выходной ли конкретный день."""
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -303,7 +301,6 @@ def is_day_off(master_id: int, date_str: str) -> bool:
 
 
 def add_day_off(master_id: int, date_str: str, reason: str = "") -> None:
-    """Добавляет выходной."""
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -315,7 +312,6 @@ def add_day_off(master_id: int, date_str: str, reason: str = "") -> None:
 
 
 def remove_day_off(master_id: int, date_str: str) -> None:
-    """Удаляет выходной."""
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -331,7 +327,6 @@ def remove_day_off(master_id: int, date_str: str) -> None:
 # ============================================
 
 def get_all_services() -> list:
-    """Возвращает все активные услуги."""
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -352,22 +347,19 @@ def get_service(service_id: int) -> Optional[dict]:
 
 
 # ============================================
-# ЛОГИКА СЛОТОВ
+# СЛОТЫ
 # ============================================
 
 def _time_to_minutes(t: str) -> int:
-    """'10:30' → 630."""
     h, m = t.split(":")
     return int(h) * 60 + int(m)
 
 
 def _minutes_to_time(m: int) -> str:
-    """630 → '10:30'."""
     return f"{m // 60:02d}:{m % 60:02d}"
 
 
 def get_busy_slots(master_id: int, date_str: str) -> list:
-    """Возвращает список занятых слотов (минуты) на дату."""
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -391,19 +383,12 @@ def get_free_slots(
     service_duration: int = 60,
     step_minutes: int = 30,
 ) -> list:
-    """
-    Возвращает свободные слоты на дату.
-    Возвращает: ["10:00", "10:30", "11:00", ...]
-    """
-    # Проверяем выходной
     if is_day_off(master_id, date_str):
         return []
 
-    # Парсим дату
     dt = datetime.strptime(date_str, "%Y-%m-%d").date()
     weekday = dt.weekday()
 
-    # Получаем рабочие часы на этот день недели
     wh = get_work_hours(master_id, weekday)
     if not wh or not wh.get("is_working"):
         return []
@@ -438,9 +423,6 @@ def get_free_dates(
     days_ahead: int = 14,
     from_date: str = None,
 ) -> list:
-    """
-    Возвращает список дат, где есть хотя бы один свободный слот.
-    """
     if from_date:
         start = datetime.strptime(from_date, "%Y-%m-%d").date()
     else:
@@ -477,10 +459,7 @@ def book_slot(
     lead_id: int = None,
     service_id: int = None,
 ) -> Optional[int]:
-    """
-    Бронирует слот.
-    Возвращает ID записи или None, если слот занят.
-    """
+    """Бронирует слот (из бота). Возвращает ID или None, если занят."""
     free = get_free_slots(master_id, date_str, duration)
     if time_str not in free:
         logger.warning(f"[Schedule] Слот {date_str} {time_str} уже занят")
@@ -499,8 +478,105 @@ def book_slot(
     return booking_id
 
 
+def create_manual_booking(
+    master_id: int,
+    date_str: str,
+    time_str: str,
+    duration: int,
+    name: str,
+    phone: str,
+    service_id: int = None,
+    notes: str = "",
+    reference_image: str = "",
+) -> Optional[int]:
+    """
+    Создаёт запись вручную (от мастера).
+    Возвращает ID записи или None, если слот занят.
+    """
+    free = get_free_slots(master_id, date_str, duration)
+    if time_str not in free:
+        logger.warning(f"[Schedule] Слот {date_str} {time_str} уже занят")
+        return None
+
+    conn = sqlite3.connect(SQLITE_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO leads (platform, user_id, name, phone, style, size, date_preference)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, ("manual", "master", name, phone, "", "", f"{date_str} {time_str}"))
+    lead_id = cursor.lastrowid
+
+    cursor.execute("""
+        INSERT INTO bookings
+            (master_id, lead_id, service_id, date, time, duration, status, notes, reference_image)
+        VALUES (?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)
+    """, (master_id, lead_id, service_id, date_str, time_str, duration, notes, reference_image))
+    booking_id = cursor.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    logger.info(f"[Schedule] Создана ручная запись: {date_str} {time_str} (id={booking_id})")
+    return booking_id
+
+
+def get_booking(booking_id: int) -> Optional[dict]:
+    """Возвращает запись со всеми деталями."""
+    conn = sqlite3.connect(SQLITE_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT
+            b.*,
+            l.name AS lead_name,
+            l.phone AS lead_phone,
+            s.name AS service_name,
+            s.price_from AS price_from
+        FROM bookings b
+        LEFT JOIN leads l ON b.lead_id = l.id
+        LEFT JOIN services s ON b.service_id = s.id
+        WHERE b.id = ?
+    """, (booking_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_booking(
+    booking_id: int,
+    notes: str = None,
+    reference_image: str = None,
+    status: str = None,
+) -> None:
+    """Обновляет запись."""
+    updates = []
+    params = []
+
+    if notes is not None:
+        updates.append("notes = ?")
+        params.append(notes)
+    if reference_image is not None:
+        updates.append("reference_image = ?")
+        params.append(reference_image)
+    if status is not None:
+        updates.append("status = ?")
+        params.append(status)
+
+    if not updates:
+        return
+
+    params.append(booking_id)
+
+    conn = sqlite3.connect(SQLITE_PATH)
+    cursor = conn.cursor()
+    cursor.execute(f"UPDATE bookings SET {', '.join(updates)} WHERE id = ?", params)
+    conn.commit()
+    conn.close()
+    logger.info(f"[Schedule] Обновлена запись id={booking_id}")
+
+
 def get_bookings(master_id: int, date_str: str = None, from_date: str = None) -> list:
-    """Возвращает записи мастера."""
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -527,7 +603,6 @@ def get_bookings(master_id: int, date_str: str = None, from_date: str = None) ->
 
 
 def cancel_booking(booking_id: int) -> None:
-    """Отменяет запись."""
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -540,7 +615,6 @@ def cancel_booking(booking_id: int) -> None:
 
 
 def confirm_booking(booking_id: int) -> None:
-    """Подтверждает запись."""
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -549,3 +623,15 @@ def confirm_booking(booking_id: int) -> None:
     )
     conn.commit()
     conn.close()
+
+def delete_booking(booking_id: int) -> bool:
+    """Полностью удаляет запись из БД. Возвращает True, если удалено."""
+    conn = sqlite3.connect(SQLITE_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    if deleted:
+        logger.info(f"[Schedule] Удалена запись id={booking_id}")
+    return deleted

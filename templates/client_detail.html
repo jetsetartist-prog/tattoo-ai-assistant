@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="{{ admin_lang }}" {% if admin_lang == 'he' %}dir="rtl"{% endif %}>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ client.name or 'Клиент' }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; }
+        .header { background: #075e54; color: white; }
+        .header-top { display: flex; justify-content: space-between; align-items: center; padding: 16px 40px 10px 40px; }
+        .header-top h1 { font-size: 20px; }
+        .header-nav { display: flex; gap: 20px; padding: 0 40px 14px 40px; }
+        .header-nav a { color: white; text-decoration: none; font-size: 14px; opacity: 0.8; }
+        .header-nav a:hover { opacity: 1; }
+        .header-nav a.active { opacity: 1; font-weight: 600; border-bottom: 2px solid #25d366; padding-bottom: 2px; }
+        .lang-switch { display: flex; gap: 5px; }
+        .lang-btn { padding: 3px 8px; background: rgba(255,255,255,0.15); color: white; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .lang-btn.active { background: #25d366; }
+
+        .container { max-width: 900px; margin: 30px auto; padding: 0 20px; }
+        .card { background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .card h2 { color: #075e54; font-size: 20px; margin-bottom: 20px; }
+        .info-grid { display: grid; grid-template-columns: 180px 1fr; gap: 16px; font-size: 15px; }
+        .info-grid .label { color: #666; font-weight: 500; }
+        .info-grid .value { color: #333; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .stat { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .stat .label { font-size: 12px; color: #666; margin-bottom: 8px; }
+        .stat .value { font-size: 26px; font-weight: 700; color: #075e54; }
+
+        .notes-box { background: #f9f9f9; border-left: 4px solid #25d366; padding: 16px 20px; border-radius: 8px; color: #333; font-size: 15px; line-height: 1.6; white-space: pre-wrap; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { text-align: left; padding: 12px; background: #f9f9f9; color: #666; font-weight: 600; font-size: 12px; text-transform: uppercase; }
+        td { padding: 14px 12px; border-bottom: 1px solid #eee; }
+        tr:hover { background: #fafafa; cursor: pointer; }
+        .status { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .status-pending { background: #fff3e0; color: #e65100; }
+        .status-confirmed { background: #e8f5e9; color: #2e7d32; }
+        .status-cancelled { background: #ffebee; color: #c62828; }
+
+        .actions { display: flex; gap: 12px; margin-top: 20px; }
+        .btn { padding: 12px 24px; border-radius: 8px; font-size: 15px; font-weight: 600; text-decoration: none; display: inline-block; border: none; cursor: pointer; }
+        .btn-primary { background: #25d366; color: white; }
+        .btn-primary:hover { background: #1ebe5d; }
+        .btn-secondary { background: #f0f0f0; color: #333; }
+        .btn-secondary:hover { background: #e0e0e0; }
+    </style>
+</head>
+<body>
+    {% include '_nav.html' %}
+
+    <div class="container">
+        <div class="card">
+            <h2>👤 {{ client.name or 'Клиент' }}</h2>
+
+            <div class="info-grid">
+                <div class="label">{{ t('clients_th_name', admin_lang) }}:</div>
+                <div class="value">{{ client.name or '—' }}</div>
+
+                <div class="label">{{ t('clients_th_phone', admin_lang) }}:</div>
+                <div class="value">{{ client.phone or '—' }}</div>
+
+                <div class="label">{{ t('clients_th_email', admin_lang) }}:</div>
+                <div class="value">{{ client.email or '—' }}</div>
+
+                <div class="label">{{ t('clients_th_created', admin_lang) }}:</div>
+                <div class="value">{{ client.created_at[:10] if client.created_at else '—' }}</div>
+            </div>
+
+            {% if client.notes %}
+            <div style="margin-top: 24px;">
+                <div class="label" style="color: #666; font-weight: 500; margin-bottom: 8px;">💬 {{ t('clients_notes', admin_lang) }}:</div>
+                <div class="notes-box">{{ client.notes }}</div>
+            </div>
+            {% endif %}
+
+            <div class="actions">
+                <a href="/admin/clients" class="btn btn-secondary">← {{ t('clients_back', admin_lang) }}</a>
+                <a href="/admin/clients/edit/{{ client.id }}" class="btn btn-primary">✎ {{ t('clients_edit', admin_lang) }}</a>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat">
+                <div class="label">{{ t('client_stat_total', admin_lang) }}</div>
+                <div class="value">{{ stats.total_bookings }}</div>
+            </div>
+            <div class="stat">
+                <div class="label">{{ t('client_stat_confirmed', admin_lang) }}</div>
+                <div class="value">{{ stats.confirmed_bookings }}</div>
+            </div>
+            <div class="stat">
+                <div class="label">{{ t('client_stat_revenue', admin_lang) }}</div>
+                <div class="value">{{ stats.total_revenue }} {{ currency_symbol }}</div>
+            </div>
+            <div class="stat">
+                <div class="label">{{ t('client_stat_avg', admin_lang) }}</div>
+                <div class="value">{{ stats.average_check }} {{ currency_symbol }}</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📅 {{ t('client_bookings_history', admin_lang) }}</h2>
+
+            {% if bookings %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>{{ t('bookings_th_date', admin_lang) }}</th>
+                        <th>{{ t('bookings_th_time', admin_lang) }}</th>
+                        <th>{{ t('bookings_th_size', admin_lang) }}</th>
+                        <th>{{ t('bookings_th_status', admin_lang) }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in bookings %}
+                    <tr onclick="window.location='/admin/bookings/{{ b.id }}'">
+                        <td><b>{{ b.date }}</b></td>
+                        <td>{{ b.time }}</td>
+                        <td>{{ b.service_name or '—' }}</td>
+                        <td>
+                            {% if b.status == 'pending' %}
+                            <span class="status status-pending">{{ t('bookings_status_pending', admin_lang) }}</span>
+                            {% elif b.status == 'confirmed' %}
+                            <span class="status status-confirmed">{{ t('bookings_status_confirmed', admin_lang) }}</span>
+                            {% elif b.status == 'cancelled' %}
+                            <span class="status status-cancelled">{{ t('bookings_status_cancelled', admin_lang) }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty">
+                <div class="empty-icon">📭</div>
+                <p>{{ t('client_bookings_empty', admin_lang) }}</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

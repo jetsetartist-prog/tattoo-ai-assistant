@@ -12,6 +12,9 @@
         <a href="/admin/schedule" {% if active == 'schedule' %}class="active"{% endif %}>{{ t('admin_nav_schedule', admin_lang) }}</a>
         <a href="/admin/bookings" {% if active == 'bookings' %}class="active"{% endif %}>{{ t('admin_nav_bookings', admin_lang) }}</a>
         <a href="/admin/calendar" {% if active == 'calendar' %}class="active"{% endif %}>{{ t('admin_nav_calendar', admin_lang) }}</a>
+        <a href="/admin/clients" {% if active == 'clients' %}class="active"{% endif %}>{{ t('nav_clients', admin_lang) }}</a>
+        <a href="/admin/services" {% if active == 'services' %}class="active"{% endif %}>{{ t('nav_services', admin_lang) }}</a>
+        <a href="/admin/stats" {% if active == 'stats' %}class="active"{% endif %}>{{ t('stats_title', admin_lang) }}</a>
         <a href="/admin/settings" {% if active == 'settings' %}class="active"{% endif %}>{{ t('admin_nav_settings', admin_lang) }}</a>
         <a href="/admin/logout">{{ t('admin_nav_logout', admin_lang) }}</a>
     </div>

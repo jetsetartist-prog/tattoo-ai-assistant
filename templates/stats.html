@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="{{ admin_lang }}" {% if admin_lang == 'he' %}dir="rtl"{% endif %}>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ t('stats_title', admin_lang) }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+        .header {
+            background: #075e54;
+            color: white;
+        }
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 40px 10px 40px;
+        }
+        .header-top h1 { font-size: 20px; }
+        .header-nav {
+            display: flex;
+            gap: 20px;
+            padding: 0 40px 14px 40px;
+        }
+        .header-nav a {
+            color: white;
+            text-decoration: none;
+            font-size: 14px;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+        .header-nav a:hover { opacity: 1; }
+        .header-nav a.active {
+            opacity: 1;
+            font-weight: 600;
+            border-bottom: 2px solid #25d366;
+            padding-bottom: 2px;
+        }
+        .lang-switch {
+            display: flex;
+            gap: 5px;
+        }
+        .lang-btn {
+            display: inline-block;
+            padding: 3px 8px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            transition: background 0.2s;
+            line-height: 1.4;
+        }
+        .lang-btn:hover { background: rgba(255, 255, 255, 0.3); }
+        .lang-btn.active { background: #25d366; }
+
+        .container {
+            max-width: 1100px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .filters {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .filters a {
+            padding: 10px 20px;
+            background: white;
+            color: #333;
+            text-decoration: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: all 0.2s;
+        }
+        .filters a:hover { background: #f0f0f0; }
+        .filters a.active {
+            background: #25d366;
+            color: white;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 22px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .stat-card .label {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #075e54;
+        }
+        .stat-card .unit {
+            font-size: 16px;
+            color: #999;
+            font-weight: 400;
+        }
+        .stat-card.primary {
+            background: linear-gradient(135deg, #075e54 0%, #25d366 100%);
+        }
+        .stat-card.primary .label { color: rgba(255,255,255,0.8); }
+        .stat-card.primary .value { color: white; }
+        .stat-card.primary .unit { color: rgba(255,255,255,0.7); }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        .card h3 {
+            color: #075e54;
+            font-size: 16px;
+            margin-bottom: 16px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th {
+            text-align: left;
+            padding: 10px 12px;
+            background: #f9f9f9;
+            color: #666;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            color: #333;
+        }
+        .status {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-pending { background: #fff3e0; color: #e65100; }
+        .status-confirmed { background: #e8f5e9; color: #2e7d32; }
+        .status-cancelled { background: #ffebee; color: #c62828; }
+
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    {% include '_nav.html' %}
+
+    <div class="container">
+        <h2 style="color: #075e54; margin-bottom: 20px;">{{ t('stats_title', admin_lang) }}</h2>
+
+        <div class="filters">
+            <a href="?period=today" class="{% if period == 'today' %}active{% endif %}">{{ t('stats_period_today', admin_lang) }}</a>
+            <a href="?period=week" class="{% if period == 'week' %}active{% endif %}">{{ t('stats_period_week', admin_lang) }}</a>
+            <a href="?period=month" class="{% if period == 'month' %}active{% endif %}">{{ t('stats_period_month', admin_lang) }}</a>
+            <a href="?period=all" class="{% if period == 'all' %}active{% endif %}">{{ t('stats_period_all', admin_lang) }}</a>
+        </div>
+
+        <div class="grid">
+            <div class="stat-card primary">
+                <div class="label">{{ t('stats_total', admin_lang) }}</div>
+                <div class="value">{{ stats.total }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">{{ t('stats_confirmed', admin_lang) }}</div>
+                <div class="value">{{ stats.confirmed }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">{{ t('stats_pending', admin_lang) }}</div>
+                <div class="value">{{ stats.pending }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">{{ t('stats_cancelled', admin_lang) }}</div>
+                <div class="value">{{ stats.cancelled }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">{{ t('stats_revenue', admin_lang) }}</div>
+                <div class="value">{{ stats.revenue }}<span class="unit">₽</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="label">{{ t('stats_hours', admin_lang) }}</div>
+                <div class="value">{{ stats.total_hours }}<span class="unit">ч</span></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>{{ t('stats_recent', admin_lang) }}</h3>
+
+            {% if recent %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>{{ t('bookings_th_date', admin_lang) }}</th>
+                        <th>{{ t('bookings_th_time', admin_lang) }}</th>
+                        <th>{{ t('bookings_th_client', admin_lang) }}</th>
+                        <th>{{ t('bookings_th_size', admin_lang) }}</th>
+                        <th>{{ t('bookings_th_status', admin_lang) }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in recent %}
+                    <tr>
+                        <td><b>{{ b.date_human }}</b></td>
+                        <td>{{ b.time }}</td>
+                        <td>{{ b.name }}</td>
+                        <td>{{ b.service_name }} ({{ b.duration // 60 }}ч)</td>
+                        <td>
+                            {% if b.status == 'pending' %}
+                            <span class="status status-pending">{{ t('bookings_status_pending', admin_lang) }}</span>
+                            {% elif b.status == 'confirmed' %}
+                            <span class="status status-confirmed">{{ t('bookings_status_confirmed', admin_lang) }}</span>
+                            {% elif b.status == 'cancelled' %}
+                            <span class="status status-cancelled">{{ t('bookings_status_cancelled', admin_lang) }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty">{{ t('bookings_empty', admin_lang) }}</div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

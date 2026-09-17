@@ -1,4 +1,25 @@
-<!DOCTYPE html>
+"""
+Установщик фичи: клик по слоту в календаре.
+- Клик по пустому слоту → форма новой записи с предзаполненной датой/временем
+- Клик по записи → детали записи (комментарий, фото)
+Запуск: python install_calendar_click.py
+"""
+import json
+import shutil
+from datetime import datetime
+from pathlib import Path
+
+BASE = Path(__file__).parent
+TEMPLATES = BASE / "templates"
+I18N = BASE / "core" / "i18n"
+WEB_DEMO = BASE / "web_demo.py"
+
+
+# ============================================
+# 1. ОБНОВЛЁННЫЙ calendar.html
+# ============================================
+
+CALENDAR_HTML = """<!DOCTYPE html>
 <html lang="{{ admin_lang }}" {% if admin_lang == 'he' %}dir="rtl"{% endif %}>
 <head>
     <meta charset="UTF-8">
@@ -123,7 +144,7 @@
                     {% if slot_bookings %}
                     <div class="day-slot">
                         {% for b in slot_bookings %}
-                        <a href="/admin/bookings/{{ b.id }}" style="text-decoration: none;">
+                        <a href="/admin/bookings" style="text-decoration: none;">
                             <div class="booking {% if b.status == 'pending' %}pending{% elif b.status == 'cancelled' %}cancelled{% endif %}">
                                 <div class="b-name">{{ b.name }}</div>
                                 <div class="b-time">{{ b.time }} · {{ b.duration // 60 }}ч</div>
@@ -161,3 +182,136 @@
     </div>
 </body>
 </html>
+"""
+
+
+# ============================================
+# 2. ПЕРЕВОДЫ
+# ============================================
+
+I18N_NEW = {
+    "ru": {
+        "calendar_has_notes": "есть комментарий",
+        "calendar_has_image": "есть эскиз",
+        "calendar_click_hint": "Кликните по свободному слоту, чтобы создать запись",
+    },
+    "en": {
+        "calendar_has_notes": "has notes",
+        "calendar_has_image": "has sketch",
+        "calendar_click_hint": "Click on a free slot to create a booking",
+    },
+    "he": {
+        "calendar_has_notes": "יש הערה",
+        "calendar_has_image": "יש סקיצה",
+        "calendar_click_hint": "לחץ על משבצת פנויה כדי ליצור הזמנה",
+    },
+}
+
+
+# ============================================
+# ФУНКЦИИ
+# ============================================
+
+def backup():
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_dir = BASE / f"backup_cal_click_{timestamp}"
+    backup_dir.mkdir(exist_ok=True)
+    if TEMPLATES.exists():
+        shutil.copytree(TEMPLATES, backup_dir / "templates", dirs_exist_ok=True)
+    if I18N.exists():
+        shutil.copytree(I18N, backup_dir / "i18n", dirs_exist_ok=True)
+    if WEB_DEMO.exists():
+        shutil.copy(WEB_DEMO, backup_dir / "web_demo.py")
+    print(f"📦 Бэкап: {backup_dir.name}")
+
+
+def update_calendar_html():
+    path = TEMPLATES / "calendar.html"
+    path.write_text(CALENDAR_HTML, encoding='utf-8')
+    print("✅ Обновлён: templates/calendar.html")
+
+
+def update_i18n():
+    for lang, data in I18N_NEW.items():
+        path = I18N / f"{lang}.json"
+        if not path.exists():
+            print(f"⚠️  Нет файла: {lang}.json")
+            continue
+        with open(path, encoding='utf-8') as f:
+            existing = json.load(f)
+        before = len(existing)
+        existing.update(data)
+        after = len(existing)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+        print(f"✅ {lang}.json: {before} → {after} ключей")
+
+
+def update_calendar_route():
+    """Обновляет маршрут admin_calendar в web_demo.py — добавляет has_notes, has_image."""
+    if not WEB_DEMO.exists():
+        print("❌ Нет web_demo.py")
+        return
+
+    content = WEB_DEMO.read_text(encoding='utf-8')
+
+    old_block = """            bookings_by_hour[hour].append({
+                'id': b['id'],
+                'time': b['time'],
+                'duration': b['duration'],
+                'status': b['status'],
+                'name': lead['name'] if lead else '—',
+            })"""
+
+    new_block = """            bookings_by_hour[hour].append({
+                'id': b['id'],
+                'time': b['time'],
+                'duration': b['duration'],
+                'status': b['status'],
+                'name': lead['name'] if lead else '—',
+                'has_notes': bool(b.get('notes')),
+                'has_image': bool(b.get('reference_image')),
+            })"""
+
+    if old_block in content:
+        content = content.replace(old_block, new_block)
+        WEB_DEMO.write_text(content, encoding='utf-8')
+        print("✅ web_demo.py: маршрут календаря обновлён")
+    else:
+        print("⏭️  web_demo.py: не найден блок для замены (или уже обновлён)")
+
+
+def main():
+    print("=" * 60)
+    print("🚀 Установка фичи: клик по слоту в календаре")
+    print("=" * 60)
+    print()
+
+    backup()
+    print()
+
+    print("📄 Шаблон:")
+    update_calendar_html()
+    print()
+
+    print("🌍 Переводы:")
+    update_i18n()
+    print()
+
+    print("🐍 Обновление web_demo.py:")
+    update_calendar_route()
+    print()
+
+    print("=" * 60)
+    print("✅ Готово!")
+    print("=" * 60)
+    print()
+    print("Что делать:")
+    print("1. Перезапустите web_demo.py")
+    print("2. Откройте /admin/calendar")
+    print("3. Кликните по свободному слоту — откроется форма с предзаполненной датой")
+    print()
+
+
+if __name__ == '__main__':
+    main()

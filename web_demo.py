@@ -3,10 +3,6 @@
 Запуск: python web_demo.py
 Открыть: http://localhost:5000
 Кабинет: http://localhost:5000/admin
-Расписание: http://localhost:5000/admin/schedule
-Записи: http://localhost:5000/admin/bookings
-Календарь: http://localhost:5000/admin/calendar
-Настройки: http://localhost:5000/admin/settings
 """
 import asyncio
 import os
@@ -33,9 +29,27 @@ from core.auth.storage import (
 from core.storage.schedule import (
     get_default_master, get_all_work_hours, set_work_hours,
     get_master_by_email, set_master_password, has_password,
-    get_master, get_bookings, cancel_booking, confirm_booking,
+    get_master, get_bookings, cancel_booking, confirm_booking, delete_booking,
+    create_manual_booking, get_booking, update_booking,
+    get_free_slots, get_all_services, get_service,
+)
+from core.storage.stats import (
+    get_period_stats, get_upcoming_count, get_recent_bookings,
 )
 from core.i18n.translator import t
+from core.storage.clients import (
+    get_or_create_client, get_client, get_all_clients,
+    get_client_stats, get_client_bookings, update_client,
+)
+from core.storage.services import (
+    get_all_services as get_services_list, get_service as get_service_by_id,
+    create_service, update_service, delete_service,
+)
+from core.storage.settings import (
+    get_currency, set_currency, get_currency_symbol,
+    get_currency_for_lang, sync_currency_with_lang, is_currency_manual,
+    get_all_currencies,
+)
 
 # Инициализация БД
 init_db()
@@ -380,12 +394,29 @@ def get_admin_lang() -> str:
 def _render_template_file(filename: str, **kwargs):
     if 'admin_lang' not in kwargs:
         kwargs['admin_lang'] = get_admin_lang()
+
+    # Синхронизация валюты с языком
+    try:
+        sync_currency_with_lang(kwargs['admin_lang'])
+    except Exception:
+        pass
+
     if 't' not in kwargs:
         kwargs['t'] = t
+
+    # Добавляем валюту во все шаблоны
+    if 'currency' not in kwargs:
+        try:
+            kwargs['currency'] = get_currency()
+            kwargs['currency_symbol'] = get_currency_symbol()
+        except Exception:
+            kwargs['currency'] = 'RUB'
+            kwargs['currency_symbol'] = '₽'
 
     path = os.path.join(os.path.dirname(__file__), 'templates', filename)
     with open(path, encoding='utf-8') as f:
         return render_template_string(f.read(), **kwargs)
+
 
 
 # ============================================
@@ -698,6 +729,8 @@ def admin_calendar():
                 'duration': b['duration'],
                 'status': b['status'],
                 'name': lead['name'] if lead else '—',
+                'has_notes': bool(b.get('notes')),
+                'has_image': bool(b.get('reference_image')),
             })
 
         days.append({
@@ -719,6 +752,38 @@ def admin_calendar():
         week_label=week_label,
         week_offset=week_offset,
         active='calendar',
+    )
+
+
+# ============================================
+# СТАТИСТИКА
+# ============================================
+
+@app.route('/admin/stats')
+def admin_stats():
+    token = request.cookies.get('admin_session')
+    email = get_session(token) if token else None
+
+    if not email:
+        return redirect('/admin/login')
+
+    master = get_default_master()
+    if not master:
+        return "Мастер не найден", 500
+
+    period = request.args.get('period', 'month')
+    if period not in ('today', 'week', 'month', 'all'):
+        period = 'month'
+
+    stats = get_period_stats(master['id'], period)
+    recent = get_recent_bookings(master['id'], limit=5)
+
+    return _render_template_file(
+        'stats.html',
+        stats=stats,
+        recent=recent,
+        period=period,
+        active='stats',
     )
 
 
@@ -766,12 +831,390 @@ def admin_settings():
     )
 
 
+# ============================================
+# СОХРАНЕНИЕ ЯЗЫКА
+# ============================================
+
 @app.after_request
 def save_lang_cookie(response):
     lang = request.args.get('lang', '').strip().lower()
     if lang in ('ru', 'en', 'he'):
         response.set_cookie('admin_lang', lang, max_age=365 * 24 * 3600)
     return response
+
+
+
+
+# ============================================
+# НОВАЯ ЗАПИСЬ (вручную)
+# ============================================
+
+import uuid
+from werkzeug.utils import secure_filename
+from flask import send_from_directory
+
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'data', 'uploads')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+@app.route('/admin/uploads/<filename>')
+def admin_upload(filename):
+    """Отдаёт загруженный файл."""
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+
+@app.route('/admin/bookings/new', methods=['GET', 'POST'])
+def admin_new_booking():
+    token = request.cookies.get('admin_session')
+    email = get_session(token) if token else None
+
+    if not email:
+        return redirect('/admin/login')
+
+    master = get_default_master()
+    if not master:
+        return "Мастер не найден", 500
+
+    services = get_all_services()
+
+    # Prefill из query
+    prefill_date = request.args.get('date', '')
+    prefill_time = request.args.get('time', '')
+
+    if request.method == 'GET':
+        return _render_template_file(
+            'new_booking.html',
+            services=services,
+            error=None,
+            prefill_date=prefill_date,
+            prefill_time=prefill_time,
+            prefill_name='',
+            prefill_phone='',
+            prefill_service_id=None,
+            prefill_notes='',
+            today=datetime.now().date().isoformat(),
+            active='calendar',
+        )
+
+    # POST
+    name = request.form.get('name', '').strip()
+    phone = request.form.get('phone', '').strip()
+    service_id = request.form.get('service_id', '').strip()
+    date_str = request.form.get('date', '').strip()
+    time_str = request.form.get('time', '').strip()
+    notes = request.form.get('notes', '').strip()
+
+    error = None
+
+    if not name or not phone or not service_id or not date_str or not time_str:
+        error = 'Заполните обязательные поля'
+
+    service = get_service(int(service_id)) if service_id else None
+    if not service:
+        error = 'Услуга не найдена'
+
+    if not error:
+        duration = service['duration_minutes']
+
+        # Проверяем, что слот свободен
+        free = get_free_slots(master['id'], date_str, duration)
+        if time_str not in free:
+            error = 'Этот слот занят. Выберите другое время.'
+
+    if error:
+        return _render_template_file(
+            'new_booking.html',
+            services=services,
+            error=error,
+            prefill_date=date_str,
+            prefill_time=time_str,
+            prefill_name=name,
+            prefill_phone=phone,
+            prefill_service_id=int(service_id) if service_id else None,
+            prefill_notes=notes,
+            today=datetime.now().date().isoformat(),
+            active='calendar',
+        ), 400
+
+    # Загрузка файла
+    reference_image = ''
+    if 'reference_image' in request.files:
+        file = request.files['reference_image']
+        if file and file.filename and allowed_file(file.filename):
+            # Проверяем размер
+            file.seek(0, 2)
+            size = file.tell()
+            file.seek(0)
+
+            if size <= MAX_FILE_SIZE:
+                ext = file.filename.rsplit('.', 1)[1].lower()
+                filename = f"booking_{uuid.uuid4().hex[:12]}.{ext}"
+                os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+                file.save(os.path.join(UPLOAD_FOLDER, filename))
+                reference_image = filename
+
+    # Создаём запись
+    booking_id = create_manual_booking(
+        master_id=master['id'],
+        date_str=date_str,
+        time_str=time_str,
+        duration=service['duration_minutes'],
+        name=name,
+        phone=phone,
+        service_id=service['id'],
+        notes=notes,
+        reference_image=reference_image,
+    )
+
+    if not booking_id:
+        return _render_template_file(
+            'new_booking.html',
+            services=services,
+            error='Не удалось создать запись',
+            prefill_date=date_str,
+            prefill_time=time_str,
+            prefill_name=name,
+            prefill_phone=phone,
+            prefill_service_id=int(service_id) if service_id else None,
+            prefill_notes=notes,
+            today=datetime.now().date().isoformat(),
+            active='calendar',
+        ), 500
+
+    return redirect('/admin/bookings')
+
+
+
+
+# ============================================
+# ДЕТАЛИ ЗАПИСИ
+# ============================================
+
+@app.route('/admin/bookings/<int:booking_id>')
+def admin_booking_detail(booking_id):
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+
+    booking = get_booking(booking_id)
+    if not booking:
+        return "Запись не найдена", 404
+
+    # Обогащаем датой human
+    try:
+        dt = datetime.strptime(booking['date'], "%Y-%m-%d").date()
+        weekdays_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+        booking['date_human'] = f"{dt.strftime('%d.%m.%Y')} ({weekdays_ru[dt.weekday()]})"
+    except Exception:
+        booking['date_human'] = booking['date']
+
+    return _render_template_file(
+        'booking_detail.html',
+        booking=booking,
+        active='bookings',
+    )
+
+
+
+
+@app.route('/admin/bookings/delete/<int:booking_id>')
+def admin_booking_delete(booking_id):
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+
+    delete_booking(booking_id)
+    return redirect('/admin/bookings')
+
+
+
+
+# ============================================
+# КЛИЕНТЫ
+# ============================================
+
+@app.route('/admin/clients')
+def admin_clients():
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+
+    search = request.args.get('q', '').strip()
+    clients = get_all_clients(search=search)
+
+    return _render_template_file(
+        'clients.html',
+        clients=clients,
+        search=search,
+        active='clients',
+    )
+
+
+@app.route('/admin/clients/<int:client_id>')
+def admin_client_detail(client_id):
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+
+    client = get_client(client_id)
+    if not client:
+        return "Клиент не найден", 404
+
+    stats = get_client_stats(client_id)
+    bookings = get_client_bookings(client_id)
+
+    return _render_template_file(
+        'client_detail.html',
+        client=client,
+        stats=stats,
+        bookings=bookings,
+        active='clients',
+    )
+
+
+@app.route('/admin/clients/edit/<int:client_id>', methods=['GET', 'POST'])
+def admin_client_edit(client_id):
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+
+    client = get_client(client_id)
+    if not client:
+        return "Клиент не найден", 404
+
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        phone = request.form.get('phone', '').strip()
+        email = request.form.get('email', '').strip()
+        notes = request.form.get('notes', '').strip()
+
+        update_client(
+            client_id,
+            name=name if name else None,
+            phone=phone if phone else None,
+            email=email if email else None,
+            notes=notes if notes else None,
+        )
+        return redirect(f'/admin/clients/{client_id}')
+
+    return _render_template_file(
+        'client_edit.html',
+        client=client,
+        active='clients',
+    )
+
+
+# ============================================
+# УСЛУГИ
+# ============================================
+
+@app.route('/admin/services')
+def admin_services():
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+
+    services = get_all_services()
+
+    return _render_template_file(
+        'services.html',
+        services=services,
+        active='services',
+    )
+
+
+@app.route('/admin/services/new', methods=['GET', 'POST'])
+def admin_service_new():
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+
+    error = None
+
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        hours = int(request.form.get('hours', 0) or 0)
+        minutes = int(request.form.get('minutes', 0) or 0)
+        price_from = int(request.form.get('price_from', 0) or 0)
+        buffer_minutes = int(request.form.get('buffer_minutes', 30) or 30)
+
+        duration_minutes = hours * 60 + minutes
+
+        if not name:
+            error = 'Введите название услуги'
+        elif duration_minutes <= 0:
+            error = 'Длительность должна быть больше 0'
+        else:
+            create_service(name, duration_minutes, price_from, buffer_minutes)
+            return redirect('/admin/services')
+
+    return _render_template_file(
+        'service_edit.html',
+        service=None,
+        error=error,
+        active='services',
+    )
+
+
+@app.route('/admin/services/edit/<int:service_id>', methods=['GET', 'POST'])
+def admin_service_edit(service_id):
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+
+    service = get_service(service_id)
+    if not service:
+        return "Услуга не найдена", 404
+
+    error = None
+
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        hours = int(request.form.get('hours', 0) or 0)
+        minutes = int(request.form.get('minutes', 0) or 0)
+        price_from = int(request.form.get('price_from', 0) or 0)
+        buffer_minutes = int(request.form.get('buffer_minutes', 30) or 30)
+
+        duration_minutes = hours * 60 + minutes
+
+        if not name:
+            error = 'Введите название услуги'
+        elif duration_minutes <= 0:
+            error = 'Длительность должна быть больше 0'
+        else:
+            update_service(
+                service_id,
+                name=name,
+                duration_minutes=duration_minutes,
+                price_from=price_from,
+                buffer_minutes=buffer_minutes,
+            )
+            return redirect('/admin/services')
+
+    return _render_template_file(
+        'service_edit.html',
+        service=service,
+        error=error,
+        active='services',
+    )
+
+
+@app.route('/admin/services/delete/<int:service_id>')
+def admin_service_delete(service_id):
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+
+    delete_service(service_id)
+    return redirect('/admin/services')
 
 
 if __name__ == '__main__':

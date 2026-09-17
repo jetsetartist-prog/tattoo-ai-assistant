@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="{{ admin_lang }}" {% if admin_lang == 'he' %}dir="rtl"{% endif %}>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ t('clients_title', admin_lang) }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; }
+        .header { background: #075e54; color: white; }
+        .header-top { display: flex; justify-content: space-between; align-items: center; padding: 16px 40px 10px 40px; }
+        .header-top h1 { font-size: 20px; }
+        .header-nav { display: flex; gap: 20px; padding: 0 40px 14px 40px; }
+        .header-nav a { color: white; text-decoration: none; font-size: 14px; opacity: 0.8; }
+        .header-nav a:hover { opacity: 1; }
+        .header-nav a.active { opacity: 1; font-weight: 600; border-bottom: 2px solid #25d366; padding-bottom: 2px; }
+        .lang-switch { display: flex; gap: 5px; }
+        .lang-btn { padding: 3px 8px; background: rgba(255,255,255,0.15); color: white; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .lang-btn.active { background: #25d366; }
+
+        .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
+        .card { background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .card h2 { color: #075e54; font-size: 20px; }
+        .search-box { display: flex; gap: 8px; }
+        .search-box input {
+            padding: 10px 16px; border: 2px solid #e0e0e0; border-radius: 8px;
+            font-size: 14px; outline: none; width: 250px;
+        }
+        .search-box input:focus { border-color: #25d366; }
+        .search-box button {
+            padding: 10px 20px; background: #25d366; color: white; border: none;
+            border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { text-align: left; padding: 12px; background: #f9f9f9; color: #666; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 14px 12px; border-bottom: 1px solid #eee; }
+        tr:hover { background: #fafafa; cursor: pointer; }
+        .empty { text-align: center; padding: 60px 20px; color: #999; }
+        .empty-icon { font-size: 48px; margin-bottom: 16px; }
+        .btn-new {
+            display: inline-block; padding: 10px 20px; background: #075e54; color: white;
+            text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 600;
+        }
+        .btn-new:hover { background: #064a42; }
+    </style>
+</head>
+<body>
+    {% include '_nav.html' %}
+
+    <div class="container">
+        <div class="card">
+            <div class="card-header">
+                <h2>👥 {{ t('clients_title', admin_lang) }}</h2>
+                <form class="search-box" method="GET" action="/admin/clients">
+                    <input type="text" name="q" placeholder="{{ t('clients_search', admin_lang) }}" value="{{ search or '' }}">
+                    <button type="submit">🔍</button>
+                </form>
+            </div>
+
+            {% if clients %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>{{ t('clients_th_name', admin_lang) }}</th>
+                        <th>{{ t('clients_th_phone', admin_lang) }}</th>
+                        <th>{{ t('clients_th_email', admin_lang) }}</th>
+                        <th>{{ t('clients_th_created', admin_lang) }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in clients %}
+                    <tr onclick="window.location='/admin/clients/{{ c.id }}'">
+                        <td><b>{{ c.name or '—' }}</b></td>
+                        <td>{{ c.phone or '—' }}</td>
+                        <td>{{ c.email or '—' }}</td>
+                        <td>{{ c.created_at[:10] if c.created_at else '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty">
+                <div class="empty-icon">👥</div>
+                <p>{{ t('clients_empty', admin_lang) }}</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
