@@ -29,9 +29,9 @@ from core.auth.storage import (
 from core.storage.schedule import (
     get_default_master, get_all_work_hours, set_work_hours,
     get_master_by_email, set_master_password, has_password,
-    get_master, get_bookings, cancel_booking, confirm_booking, delete_booking,
+    get_master, get_bookings, cancel_booking, confirm_booking, update_booking_price, delete_booking,
     create_manual_booking, get_booking, update_booking,
-    get_free_slots, get_all_services, get_service,
+    get_free_slots_admin, get_all_services, get_service,
 )
 from core.storage.stats import (
     get_period_stats, get_upcoming_count, get_recent_bookings,
@@ -695,7 +695,22 @@ def admin_calendar():
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    hours = list(range(10, 21))
+    from core.storage.schedule import get_all_work_hours, is_day_off, _time_to_minutes
+    work_hours_list = get_all_work_hours(master['id'])
+    work_hours_by_weekday = {wh['weekday']: wh for wh in work_hours_list}
+
+    all_hours = set()
+    for wh in work_hours_list:
+        if wh.get('is_working'):
+            start_h = _time_to_minutes(wh['start_time']) // 60
+            end_h = _time_to_minutes(wh['end_time']) // 60
+            for h in range(start_h, end_h):
+                all_hours.add(h)
+
+    if all_hours:
+        hours = list(range(min(all_hours), max(all_hours) + 1))
+    else:
+        hours = list(range(10, 21))
 
     days = []
     weekdays_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -703,6 +718,23 @@ def admin_calendar():
     for i in range(7):
         day_date = monday + timedelta(days=i)
         date_str = day_date.isoformat()
+        weekday = day_date.weekday()
+
+        wh = work_hours_by_weekday.get(weekday, {})
+        is_working_day = bool(wh.get('is_working'))
+
+        work_start_h = None
+        work_end_h = None
+        if is_working_day:
+            work_start_h = _time_to_minutes(wh['start_time']) // 60
+            work_end_h = _time_to_minutes(wh['end_time']) // 60
+
+        is_off_day = (not is_working_day) or is_day_off(master['id'], date_str)
+
+        working_hours = set()
+        if not is_off_day:
+            for h in range(work_start_h, work_end_h):
+                working_hours.add(h)
 
         bookings_by_hour = {}
 
@@ -738,6 +770,8 @@ def admin_calendar():
             'day_num': day_date.strftime('%d.%m'),
             'date': date_str,
             'is_today': day_date == today,
+            'is_off_day': is_off_day,
+            'working_hours': working_hours,
             'bookings_by_hour': bookings_by_hour,
         })
 
@@ -911,6 +945,8 @@ def admin_new_booking():
     date_str = request.form.get('date', '').strip()
     time_str = request.form.get('time', '').strip()
     notes = request.form.get('notes', '').strip()
+    price = int(request.form.get('price', 0) or 0)
+    deposit = int(request.form.get('deposit', 0) or 0)
 
     error = None
 
@@ -925,7 +961,7 @@ def admin_new_booking():
         duration = service['duration_minutes']
 
         # Проверяем, что слот свободен
-        free = get_free_slots(master['id'], date_str, duration)
+        free = get_free_slots_admin(master['id'], date_str, duration)
         if time_str not in free:
             error = 'Этот слот занят. Выберите другое время.'
 
@@ -961,6 +997,10 @@ def admin_new_booking():
                 file.save(os.path.join(UPLOAD_FOLDER, filename))
                 reference_image = filename
 
+    # Получаем или создаём клиента
+    from core.storage.clients import get_or_create_client
+    client_id = get_or_create_client(name, phone)
+
     # Создаём запись
     booking_id = create_manual_booking(
         master_id=master['id'],
@@ -972,6 +1012,10 @@ def admin_new_booking():
         service_id=service['id'],
         notes=notes,
         reference_image=reference_image,
+        client_id=client_id,
+        price=price,
+        deposit=deposit,
+        source='manual',
     )
 
     if not booking_id:
@@ -1215,6 +1259,121 @@ def admin_service_delete(service_id):
 
     delete_service(service_id)
     return redirect('/admin/services')
+
+
+
+
+@app.route('/admin/bookings/edit/<int:booking_id>', methods=['POST'])
+def admin_booking_edit_price(booking_id):
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return redirect('/admin/login')
+
+    price = int(request.form.get('price', 0) or 0)
+    deposit = int(request.form.get('deposit', 0) or 0)
+
+    update_booking_price(booking_id, price=price, deposit=deposit)
+    return redirect(f'/admin/bookings/{booking_id}')
+
+
+
+
+# ============================================
+# API: ПОИСК КЛИЕНТОВ
+# ============================================
+
+@app.route('/admin/api/clients/search')
+def admin_api_clients_search():
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return jsonify([])
+
+    query = request.args.get('q', '').strip()
+    if len(query) < 2:
+        return jsonify([])
+
+    from core.storage.clients import get_all_clients
+    clients = get_all_clients(search=query)
+
+    result = []
+    for c in clients[:10]:
+        result.append({
+            'id': c['id'],
+            'name': c['name'] or '',
+            'phone': c['phone'] or '',
+        })
+
+    return jsonify(result)
+
+
+# ============================================
+# API: ОТКРЫТИЕ НЕРАБОЧЕГО СЛОТА
+# ============================================
+
+@app.route('/admin/api/slots/open', methods=['POST'])
+def admin_api_open_slot():
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return jsonify({'success': False, 'error': 'Not authorized'}), 401
+
+    data = request.json
+    date_str = data.get('date')
+    time_str = data.get('time')
+
+    if not date_str or not time_str:
+        return jsonify({'success': False, 'error': 'Missing data'}), 400
+
+    master = get_default_master()
+    if not master:
+        return jsonify({'success': False, 'error': 'Master not found'}), 500
+
+    from core.storage.schedule import add_custom_slot
+    add_custom_slot(master['id'], date_str, time_str)
+
+    return jsonify({'success': True})
+
+
+# ============================================
+# API: ПЕРЕМЕЩЕНИЕ ЗАПИСИ (drag & drop)
+# ============================================
+
+@app.route('/admin/api/bookings/move', methods=['POST'])
+def admin_api_booking_move():
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return jsonify({'success': False, 'error': 'Not authorized'}), 401
+
+    data = request.json
+    booking_id = data.get('booking_id')
+    new_date = data.get('date')
+    new_time = data.get('time')
+
+    if not booking_id or not new_date or not new_time:
+        return jsonify({'success': False, 'error': 'Missing data'}), 400
+
+    booking = get_booking(booking_id)
+    if not booking:
+        return jsonify({'success': False, 'error': 'Booking not found'}), 404
+
+    master = get_default_master()
+    duration = booking['duration']
+
+    from core.storage.schedule import get_free_slots_admin
+    free = get_free_slots_admin(master['id'], new_date, duration)
+
+    if not (new_date == booking['date'] and new_time == booking['time']):
+        if new_time not in free:
+            return jsonify({'success': False, 'error': 'Slot is busy'}), 400
+
+    import sqlite3 as _sqlite3
+    conn = _sqlite3.connect(os.getenv("SQLITE_PATH", "data/leads.db"))
+    cur = conn.cursor()
+    cur.execute("UPDATE bookings SET date = ?, time = ? WHERE id = ?",
+                (new_date, new_time, booking_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True})
 
 
 if __name__ == '__main__':

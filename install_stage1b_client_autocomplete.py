@@ -1,4 +1,64 @@
-<!DOCTYPE html>
+"""
+ЭТАП 1b: Автоподсказка клиентов (без предупреждений о дубликатах).
+
+Что делает:
+1. web_demo.py: маршрут /admin/api/clients/search — автоподсказка
+2. new_booking.html: автоподсказка при вводе имени
+3. Переводы
+
+Запуск: python install_stage1b_client_autocomplete.py
+"""
+import json
+import shutil
+from datetime import datetime
+from pathlib import Path
+
+BASE = Path(__file__).parent
+TEMPLATES = BASE / "templates"
+I18N = BASE / "core" / "i18n"
+WEB_DEMO = BASE / "web_demo.py"
+
+
+# ============================================
+# 1. МАРШРУТ ПОИСКА
+# ============================================
+
+ROUTE_SEARCH = '''
+
+# ============================================
+# API: ПОИСК КЛИЕНТОВ
+# ============================================
+
+@app.route('/admin/api/clients/search')
+def admin_api_clients_search():
+    token = request.cookies.get('admin_session')
+    if not get_session(token):
+        return jsonify([])
+
+    query = request.args.get('q', '').strip()
+    if len(query) < 2:
+        return jsonify([])
+
+    from core.storage.clients import get_all_clients
+    clients = get_all_clients(search=query)
+
+    result = []
+    for c in clients[:10]:
+        result.append({
+            'id': c['id'],
+            'name': c['name'] or '',
+            'phone': c['phone'] or '',
+        })
+
+    return jsonify(result)
+'''
+
+
+# ============================================
+# 2. NEW_BOOKING_HTML
+# ============================================
+
+NEW_BOOKING_HTML = """<!DOCTYPE html>
 <html lang="{{ admin_lang }}" {% if admin_lang == 'he' %}dir="rtl"{% endif %}>
 <head>
     <meta charset="UTF-8">
@@ -265,3 +325,102 @@
     </script>
 </body>
 </html>
+"""
+
+
+# ============================================
+# 3. ПЕРЕВОДЫ
+# ============================================
+
+I18N_RU = {
+    "client_selected": "Выбран клиент",
+    "client_existing": "из базы",
+}
+
+I18N_EN = {
+    "client_selected": "Client selected",
+    "client_existing": "from base",
+}
+
+I18N_HE = {
+    "client_selected": "לקוח נבחר",
+    "client_existing": "מהמאגר",
+}
+
+
+# ============================================
+# ФУНКЦИИ
+# ============================================
+
+def backup():
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_dir = BASE / f"backup_stage1b_{timestamp}"
+    backup_dir.mkdir(exist_ok=True)
+    if TEMPLATES.exists():
+        shutil.copytree(TEMPLATES, backup_dir / "templates", dirs_exist_ok=True)
+    if WEB_DEMO.exists():
+        shutil.copy(WEB_DEMO, backup_dir / "web_demo.py")
+    print(f"📦 Бэкап: {backup_dir.name}")
+    print()
+
+
+def update_template():
+    path = TEMPLATES / "new_booking.html"
+    path.write_text(NEW_BOOKING_HTML, encoding='utf-8')
+    print("  ✅ new_booking.html обновлён")
+
+
+def update_web_demo():
+    if not WEB_DEMO.exists():
+        return
+    content = WEB_DEMO.read_text(encoding='utf-8')
+    if '/admin/api/clients/search' not in content:
+        marker = "if __name__ == '__main__':"
+        if marker in content:
+            content = content.replace(marker, ROUTE_SEARCH + "\n\n" + marker, 1)
+            print("  ✅ web_demo.py: маршрут поиска")
+    else:
+        print("  ⏭️  web_demo.py: маршрут уже есть")
+    WEB_DEMO.write_text(content, encoding='utf-8')
+
+
+def update_i18n():
+    for lang, data in [('ru', I18N_RU), ('en', I18N_EN), ('he', I18N_HE)]:
+        path = I18N / f"{lang}.json"
+        if not path.exists():
+            continue
+        with open(path, encoding='utf-8') as f:
+            existing = json.load(f)
+        before = len(existing)
+        existing.update(data)
+        after = len(existing)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+        print(f"  ✅ {lang}.json: {before} → {after}")
+
+
+def main():
+    print("=" * 60)
+    print("🚀 ЭТАП 1b: Автоподсказка клиентов")
+    print("=" * 60)
+    print()
+
+    backup()
+    update_template()
+    update_web_demo()
+    update_i18n()
+
+    print()
+    print("=" * 60)
+    print("✅ ЭТАП 1b ГОТОВ")
+    print("=" * 60)
+    print()
+    print("Что делает:")
+    print("  - При вводе имени → подсказка клиентов из базы")
+    print("  - Выбор клиента → подставляется телефон")
+    print("  - Без предупреждений о дубликатах")
+    print()
+
+
+if __name__ == '__main__':
+    main()

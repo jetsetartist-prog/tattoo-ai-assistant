@@ -11,7 +11,7 @@ from core.storage.schedule import (
     get_default_master,
     get_all_services,
     get_free_dates,
-    get_free_slots,
+    get_free_slots_bot,
     book_slot,
 )
 
@@ -195,7 +195,7 @@ async def handle_booking_input(
         state["step"] = "time"
 
         # Получаем свободные слоты на эту дату
-        free_slots = get_free_slots(master["id"], chosen_date["date"], duration)
+        free_slots = get_free_slots_bot(master["id"], chosen_date["date"], duration)
 
         if not free_slots:
             state["step"] = "date"
@@ -224,7 +224,7 @@ async def handle_booking_input(
         duration = state["data"]["duration"]
         chosen_date = state["data"]["date"]
 
-        free_slots = get_free_slots(master["id"], chosen_date, duration)
+        free_slots = get_free_slots_bot(master["id"], chosen_date, duration)
 
         # Ищем выбранное время
         chosen_time = None

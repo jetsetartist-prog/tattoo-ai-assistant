@@ -1,4 +1,12 @@
-<!DOCTYPE html>
+"""Fix: заменяет calendar.html на версию с нерабочими часами."""
+import shutil
+from datetime import datetime
+from pathlib import Path
+
+BASE = Path(__file__).parent
+CALENDAR = BASE / "templates" / "calendar.html"
+
+HTML = '''<!DOCTYPE html>
 <html lang="{{ admin_lang }}" {% if admin_lang == 'he' %}dir="rtl"{% endif %}>
 <head>
     <meta charset="UTF-8">
@@ -142,13 +150,46 @@
             pendingSlot = null;
             document.getElementById('off_slot_modal').style.display = 'none';
         }
-                function confirmOpenSlot() {
+        function confirmOpenSlot() {
             if (!pendingSlot) return;
-            const slot = pendingSlot;
-            closeOffSlotModal();
-            window.location.href = '/admin/bookings/new?date=' + slot.date + '&time=' + slot.time;
+            fetch('/admin/api/slots/open', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(pendingSlot)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const slot = pendingSlot;
+                    closeOffSlotModal();
+                    window.location.href = '/admin/bookings/new?date=' + slot.date + '&time=' + slot.time;
+                } else {
+                    alert('Ошибка: ' + (data.error || 'не удалось'));
+                }
+            })
+            .catch(() => alert('Ошибка соединения'));
             pendingSlot = null;
         }
     </script>
 </body>
 </html>
+'''
+
+
+def main():
+    print("🔧 Замена calendar.html")
+    if CALENDAR.exists():
+        backup = BASE / f"backup_cal_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        backup.mkdir(exist_ok=True)
+        shutil.copy(CALENDAR, backup / "calendar.html")
+        print(f"📦 Бэкап: {backup.name}")
+
+    CALENDAR.write_text(HTML, encoding='utf-8')
+    print("✅ calendar.html заменён")
+    print()
+    print("Проверьте:")
+    print('  python -c "c = open(\'templates/calendar.html\', encoding=\'utf-8\').read(); print(\'is_off_day:\', \'is_off_day\' in c); print(\'day-slot off:\', \'day-slot off\' in c)"')
+
+
+if __name__ == '__main__':
+    main()

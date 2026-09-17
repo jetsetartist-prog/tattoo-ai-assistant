@@ -101,7 +101,7 @@ async def handle_incoming(msg: IncomingMessage, adapter: MessageAdapter) -> None
             msg,
             adapter,
             admin_chat_id=ADMIN_USER_ID if ADMIN_USER_ID else None,
-            lang=lang,
+            
         )
         return
 

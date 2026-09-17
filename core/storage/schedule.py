@@ -377,6 +377,169 @@ def get_busy_slots(master_id: int, date_str: str) -> list:
     return busy
 
 
+"""
+Функции для работы с кастомными слотами.
+get_free_slots_bot — только рабочие слоты (для бота)
+get_free_slots_admin — рабочие + кастомные (для кабинета)
+"""
+
+
+
+
+# ============================================
+# КАСТОМНЫЕ СЛОТЫ (открытые вручную)
+# ============================================
+
+def add_custom_slot(master_id: int, date_str: str, time_str: str):
+    """Открывает один нерабочий слот для записи."""
+    conn = sqlite3.connect(SQLITE_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT OR IGNORE INTO custom_slots (master_id, date, time)
+        VALUES (?, ?, ?)
+    """, (master_id, date_str, time_str))
+    conn.commit()
+    conn.close()
+    logger.info(f"[Schedule] Открыт кастомный слот: {date_str} {time_str}")
+
+
+def get_custom_slots(master_id: int, date_str: str) -> list:
+    """Возвращает список кастомных слотов на дату."""
+    conn = sqlite3.connect(SQLITE_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT time FROM custom_slots
+        WHERE master_id = ? AND date = ?
+    """, (master_id, date_str))
+    rows = cur.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def remove_custom_slot(master_id: int, date_str: str, time_str: str):
+    """Закрывает кастомный слот."""
+    conn = sqlite3.connect(SQLITE_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        DELETE FROM custom_slots
+        WHERE master_id = ? AND date = ? AND time = ?
+    """, (master_id, date_str, time_str))
+    conn.commit()
+    conn.close()
+    logger.info(f"[Schedule] Закрыт кастомный слот: {date_str} {time_str}")
+
+
+def get_free_slots_bot(
+    master_id: int,
+    date_str: str,
+    service_duration: int = 60,
+    step_minutes: int = 30,
+) -> list:
+    """Свободные слоты для БОТА — только рабочие часы, без custom_slots."""
+    dt = datetime.strptime(date_str, "%Y-%m-%d").date()
+    weekday = dt.weekday()
+
+    # Выходной — нет слотов
+    if is_day_off(master_id, date_str):
+        return []
+
+    wh = get_work_hours(master_id, weekday)
+    if not wh or not wh.get("is_working"):
+        return []
+
+    work_start = _time_to_minutes(wh["start_time"])
+    work_end = _time_to_minutes(wh["end_time"])
+
+    busy = get_busy_slots(master_id, date_str)
+
+    free = []
+    current = work_start
+    while current + service_duration <= work_end:
+        slot_end = current + service_duration
+        overlap = False
+        for b_start, b_end in busy:
+            if not (slot_end <= b_start or current >= b_end):
+                overlap = True
+                break
+        if not overlap:
+            free.append(_minutes_to_time(current))
+        current += step_minutes
+
+    return free
+
+
+def get_free_slots_admin(
+    master_id: int,
+    date_str: str,
+    service_duration: int = 60,
+    step_minutes: int = 30,
+) -> list:
+    """Свободные слоты для КАБИНЕТА — рабочие + custom_slots."""
+    dt = datetime.strptime(date_str, "%Y-%m-%d").date()
+    weekday = dt.weekday()
+
+    busy = get_busy_slots(master_id, date_str)
+    custom = set(get_custom_slots(master_id, date_str))
+
+    # Выходной — только custom_slots
+    if is_day_off(master_id, date_str):
+        free = []
+        for time_str in sorted(custom):
+            current = _time_to_minutes(time_str)
+            slot_end = current + service_duration
+            overlap = False
+            for b_start, b_end in busy:
+                if not (slot_end <= b_start or current >= b_end):
+                    overlap = True
+                    break
+            if not overlap:
+                free.append(time_str)
+        return free
+
+    wh = get_work_hours(master_id, weekday)
+
+    # День нерабочий по графику — только custom
+    if not wh or not wh.get("is_working"):
+        free = []
+        for time_str in sorted(custom):
+            current = _time_to_minutes(time_str)
+            slot_end = current + service_duration
+            overlap = False
+            for b_start, b_end in busy:
+                if not (slot_end <= b_start or current >= b_end):
+                    overlap = True
+                    break
+            if not overlap:
+                free.append(time_str)
+        return free
+
+    work_start = _time_to_minutes(wh["start_time"])
+    work_end = _time_to_minutes(wh["end_time"])
+
+    # Рабочие + кастомные
+    candidates = set()
+    current = work_start
+    while current + service_duration <= work_end:
+        candidates.add(current)
+        current += step_minutes
+
+    for time_str in custom:
+        candidates.add(_time_to_minutes(time_str))
+
+    free = []
+    for start_min in sorted(candidates):
+        slot_end = start_min + service_duration
+        overlap = False
+        for b_start, b_end in busy:
+            if not (slot_end <= b_start or start_min >= b_end):
+                overlap = True
+                break
+        if not overlap:
+            free.append(_minutes_to_time(start_min))
+
+    return free
+
+
 def get_free_slots(
     master_id: int,
     date_str: str,
@@ -488,15 +651,31 @@ def create_manual_booking(
     service_id: int = None,
     notes: str = "",
     reference_image: str = "",
+    client_id: int = None,
+    price: int = 0,
+    deposit: int = 0,
+    source: str = "manual",
 ) -> Optional[int]:
     """
-    Создаёт запись вручную (от мастера).
+    Создаёт запись вручную (от мастера или из бота).
     Возвращает ID записи или None, если слот занят.
     """
     free = get_free_slots(master_id, date_str, duration)
     if time_str not in free:
-        logger.warning(f"[Schedule] Слот {date_str} {time_str} уже занят")
-        return None
+        # Проверяем, свободен ли слот фактически
+        busy = get_busy_slots(master_id, date_str)
+        start = _time_to_minutes(time_str)
+        slot_end = start + duration
+        overlap = False
+        for b_start, b_end in busy:
+            if not (slot_end <= b_start or start >= b_end):
+                overlap = True
+                break
+        if overlap:
+            logger.warning(f"[Schedule] Слот {date_str} {time_str} занят")
+            return None
+        # Открываем кастомно
+        add_custom_slot(master_id, date_str, time_str)
 
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
@@ -504,20 +683,22 @@ def create_manual_booking(
     cursor.execute("""
         INSERT INTO leads (platform, user_id, name, phone, style, size, date_preference)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, ("manual", "master", name, phone, "", "", f"{date_str} {time_str}"))
+    """, (source, "auto", name, phone, "", "", f"{date_str} {time_str}"))
     lead_id = cursor.lastrowid
+
+    status = 'confirmed' if source == 'manual' else 'pending'
 
     cursor.execute("""
         INSERT INTO bookings
-            (master_id, lead_id, service_id, date, time, duration, status, notes, reference_image)
-        VALUES (?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)
-    """, (master_id, lead_id, service_id, date_str, time_str, duration, notes, reference_image))
+            (master_id, lead_id, service_id, date, time, duration, status, notes, reference_image, client_id, price, deposit, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (master_id, lead_id, service_id, date_str, time_str, duration, status, notes, reference_image, client_id, price, deposit, source))
     booking_id = cursor.lastrowid
 
     conn.commit()
     conn.close()
 
-    logger.info(f"[Schedule] Создана ручная запись: {date_str} {time_str} (id={booking_id})")
+    logger.info(f"[Schedule] Создана запись ({source}): {date_str} {time_str} (id={booking_id})")
     return booking_id
 
 
@@ -635,3 +816,27 @@ def delete_booking(booking_id: int) -> bool:
     if deleted:
         logger.info(f"[Schedule] Удалена запись id={booking_id}")
     return deleted
+
+
+def update_booking_price(booking_id: int, price: int = None, deposit: int = None):
+    """Обновляет стоимость и предоплату записи."""
+    updates = []
+    params = []
+
+    if price is not None:
+        updates.append("price = ?")
+        params.append(price)
+    if deposit is not None:
+        updates.append("deposit = ?")
+        params.append(deposit)
+
+    if not updates:
+        return
+
+    params.append(booking_id)
+    conn = sqlite3.connect(SQLITE_PATH)
+    cur = conn.cursor()
+    cur.execute(f"UPDATE bookings SET {', '.join(updates)} WHERE id = ?", params)
+    conn.commit()
+    conn.close()
+    logger.info(f"[Schedule] Обновлена цена записи id={booking_id}: price={price}, deposit={deposit}")
